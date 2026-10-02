@@ -1,0 +1,15 @@
+{
+  "AppName": "FontAutoLoader",
+  "AppVersion": "1.2.0",
+  "Publisher": "FontAutoLoader Team",
+  "MainExecutable": "FontAutoLoader.exe",
+  "DefaultFolderName": "FontAutoLoader",
+  "MarkdownFile": "README.md",
+  "MarkdownSha256": "",
+  "RepositoryUrl": "https://github.com/jiaweiyaya/FontAutoLoader",
+  "RepositoryButtonText": "访问 GitHub 仓库",
+  "LicenseName": "GPL-3.0 License",
+  "LicenseBadgeColor": "#107C41",
+  "CreateDesktopShortcut": true,
+  "CreateStartMenuShortcut": true
+}

@@ -1,0 +1,42 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFramework>net10.0-windows</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<UseWPF>true</UseWPF>
+
+		<!-- 自动申请管理员权限（安装到 Program Files 必需） -->
+		<ApplicationExecutionLevel>requireAdministrator</ApplicationExecutionLevel>
+		<ApplicationManifest>app.manifest</ApplicationManifest>
+
+		<!-- 发布配置：单文件完全自包含发布 -->
+		<PublishSingleFile>true</PublishSingleFile>
+		<SelfContained>true</SelfContained>
+		<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+		<AssemblyName>install</AssemblyName>
+		<!-- 绑定安装器自身 EXE 的外壳桌面图标 -->
+		<ApplicationIcon>installer.ico</ApplicationIcon>
+	</PropertyGroup>
+
+	<!-- 确保配置文件生成时自动拷贝到输出目录 -->
+	<ItemGroup>
+		<PackageReference Include="Markdig.Wpf" Version="0.5.0.1" />
+	</ItemGroup>
+
+	<!-- 将图标作为 WPF 窗体资源编译嵌入 -->
+	<ItemGroup>
+		<Resource Include="installer.ico" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Update="installer_config.json">
+		<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="README.md">
+		<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+
+</Project>
