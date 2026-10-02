@@ -260,13 +260,14 @@ namespace Installer
                 if (_currentStep == 1)
                 {
                     BtnNext.IsEnabled = false;
+                    TxtAgreementTip.Visibility = Visibility.Visible;
                 }
                 return;
             }
 
             if (_hasReadAgreement || _docScrollViewer == null) return;
 
-            // 容差 8 像素；若内容较短无需滚动 (ScrollableHeight <= 0)，直接解锁下一步
+            // 容差 8 像素；若内容较短无需滚动 (ScrollableHeight <= 0)，直接解锁
             if (_docScrollViewer.ScrollableHeight <= 0 ||
                 _docScrollViewer.VerticalOffset >= _docScrollViewer.ScrollableHeight - 8)
             {
@@ -274,6 +275,7 @@ namespace Installer
                 if (_currentStep == 1)
                 {
                     BtnNext.IsEnabled = true;
+                    TxtAgreementTip.Visibility = Visibility.Collapsed;
                 }
             }
         }
@@ -315,12 +317,35 @@ namespace Installer
 
                 long reqMb = _requiredBytes / (1024 * 1024);
                 long freeMb = drive.AvailableFreeSpace / (1024 * 1024);
+                bool hasEnoughSpace = drive.AvailableFreeSpace >= _requiredBytes;
 
-                TxtSpaceInfo.Text = $"需要 {Math.Max(1, reqMb)} MB，可用 {freeMb} MB";
+                if (hasEnoughSpace)
+                {
+                    TxtSpaceInfo.Text = $"需要 {Math.Max(1, reqMb)} MB，可用 {freeMb} MB";
+                    TxtSpaceInfo.Foreground = new SolidColorBrush(Color.FromRgb(138, 143, 153));
+                    if (_currentStep == 3)
+                    {
+                        BtnNext.IsEnabled = true;
+                    }
+                }
+                else
+                {
+                    TxtSpaceInfo.Text = $"需要 {Math.Max(1, reqMb)} MB，可用 {freeMb} MB（磁盘剩余空间不足！）";
+                    TxtSpaceInfo.Foreground = new SolidColorBrush(Color.FromRgb(231, 76, 60));
+                    if (_currentStep == 3)
+                    {
+                        BtnNext.IsEnabled = false;
+                    }
+                }
             }
             catch
             {
                 TxtSpaceInfo.Text = "路径格式无效";
+                TxtSpaceInfo.Foreground = new SolidColorBrush(Color.FromRgb(231, 76, 60));
+                if (_currentStep == 3)
+                {
+                    BtnNext.IsEnabled = false;
+                }
             }
         }
 
@@ -351,6 +376,7 @@ namespace Installer
                 _currentStep = 2;
                 SwitchPageWithAnimation(PageStepIntro, PageStepCheck, isForward: true);
 
+                TxtAgreementTip.Visibility = Visibility.Collapsed;
                 BtnCancel.Visibility = Visibility.Collapsed;
                 BtnBack.Visibility = Visibility.Visible;
                 BtnRecheck.Visibility = Visibility.Visible;
@@ -366,7 +392,8 @@ namespace Installer
 
                 BtnRecheck.Visibility = Visibility.Collapsed;
                 BtnNext.Content = "开始安装";
-                BtnNext.IsEnabled = true;
+                // 进入第 3 步选路径页面，立即检查当前目标路径的真实剩余空间
+                UpdateDiskSpace();
             }
             else if (_currentStep == 3)
             {
@@ -407,8 +434,9 @@ namespace Installer
                 BtnBack.Visibility = Visibility.Collapsed;
                 BtnRecheck.Visibility = Visibility.Collapsed;
                 BtnCancel.Visibility = Visibility.Visible;
-                BtnNext.Content = "下一步";
+                BtnNext.Content = "同意并继续";
                 BtnNext.IsEnabled = _isMarkdownValid && _hasReadAgreement;
+                TxtAgreementTip.Visibility = (_isMarkdownValid && _hasReadAgreement) ? Visibility.Collapsed : Visibility.Visible;
             }
             else if (_currentStep == 3)
             {
@@ -486,18 +514,6 @@ namespace Installer
             var (sourceBin, archName) = InstallerConfig.GetTargetPayloadDirectory();
             bool binExists = !string.IsNullOrEmpty(sourceBin) && Directory.Exists(sourceBin);
             checks.Add(($"系统架构匹配与文件就绪 ({archName})", binExists));
-
-            // 4. 磁盘剩余空间
-            try
-            {
-                string root = Path.GetPathRoot(Path.GetFullPath(TxtInstallPath.Text)) ?? "C:\\";
-                var drive = new DriveInfo(root);
-                checks.Add(("磁盘剩余可用空间", drive.AvailableFreeSpace >= _requiredBytes));
-            }
-            catch
-            {
-                checks.Add(("磁盘剩余可用空间", false));
-            }
 
             TxtCheckSummary.Text = $"共 {checks.Count} 项";
 
