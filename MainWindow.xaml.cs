@@ -19,6 +19,9 @@ namespace Installer
         private readonly InstallerConfig _config;
         private int _currentStep = 1;
         private long _requiredBytes = 0;
+        private ScrollViewer? _docScrollViewer;
+        private bool _hasReadAgreement = false;
+        private bool _isMarkdownValid = false;
 
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
@@ -30,8 +33,36 @@ namespace Installer
         {
             InitializeComponent();
             _config = InstallerConfig.Load();
+
+            // 监听并执行 Markdig 内部所有的超链接跳转指令，直接调用系统浏览器
+            CommandBindings.Add(new CommandBinding(Markdig.Wpf.Commands.Hyperlink, OnMarkdigHyperlinkExecuted));
+
             InitDisplay();
             LoadMarkdownContent();
+
+            // 协议阅读完成前，首屏下一步按钮保持置灰禁用
+            BtnNext.IsEnabled = false;
+
+            // 窗体渲染完成后挂载内部滚动检测器
+            this.Loaded += (s, e) => HookScrollViewer();
+        }
+
+        private void OnMarkdigHyperlinkExecuted(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (e.Parameter is string url && Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = uri.AbsoluteUri,
+                        UseShellExecute = true
+                    });
+                }
+                catch
+                {
+                }
+            }
         }
 
         protected override void OnSourceInitialized(EventArgs e)
@@ -96,7 +127,7 @@ namespace Installer
         {
             string mdPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, _config.MarkdownFile);
             string mdText;
-            bool hashValid = true;
+            _isMarkdownValid = false;
 
             if (File.Exists(mdPath))
             {
@@ -112,7 +143,7 @@ namespace Installer
 
                         if (!computedHash.Equals(_config.MarkdownSha256.Trim(), StringComparison.OrdinalIgnoreCase))
                         {
-                            hashValid = false;
+                            _isMarkdownValid = false;
                             mdText = $@"# 说明文档安全校验失败
 
 安装程序检测到说明文档文件 `{_config.MarkdownFile}` 的 SHA-256 校验和不匹配，内容可能已被非法篡改或文件损坏！
@@ -128,15 +159,18 @@ namespace Installer
                         else
                         {
                             mdText = System.Text.Encoding.UTF8.GetString(fileBytes);
+                            _isMarkdownValid = true; // 哈希一致，放行通过
                         }
                     }
                     else
                     {
                         mdText = System.Text.Encoding.UTF8.GetString(fileBytes);
+                        _isMarkdownValid = true; // 未设校验哈希，正常放行
                     }
                 }
                 catch (Exception ex)
                 {
+                    _isMarkdownValid = false;
                     mdText = $@"# 读取说明文档失败
 
 无法读取指定的文件 `{_config.MarkdownFile}`。
@@ -147,7 +181,8 @@ namespace Installer
             }
             else
             {
-                // 找不到文档时明确报错
+                // 找不到文档时明确报错并锁定
+                _isMarkdownValid = false;
                 mdText = $@"# 无法加载说明文档
 
 安装程序未能找到指定的文档文件：`{_config.MarkdownFile}`
@@ -170,21 +205,22 @@ namespace Installer
                 DocViewer.Document = doc;
                 DocViewer.AddHandler(System.Windows.Documents.Hyperlink.RequestNavigateEvent,
                     new System.Windows.Navigation.RequestNavigateEventHandler(OnHyperlinkNavigate));
-
-                // 校验失败时将下一步按钮置灰锁定
-                if (!hashValid)
-                {
-                    BtnNext.IsEnabled = false;
-                }
             }
             catch (Exception ex)
             {
+                _isMarkdownValid = false;
                 var errDoc = new System.Windows.Documents.FlowDocument();
                 errDoc.Blocks.Add(new System.Windows.Documents.Paragraph(new System.Windows.Documents.Run($"文档渲染异常：{ex.Message}"))
                 {
                     Foreground = new SolidColorBrush(Color.FromRgb(231, 76, 60))
                 });
                 DocViewer.Document = errDoc;
+            }
+
+            // 无论任何原因导致文档不可用，都将下一步按钮强制锁死置灰
+            if (!_isMarkdownValid)
+            {
+                BtnNext.IsEnabled = false;
             }
         }
 
@@ -202,6 +238,56 @@ namespace Installer
             {
             }
             e.Handled = true;
+        }
+
+        private void HookScrollViewer()
+        {
+            _docScrollViewer = FindVisualChild<ScrollViewer>(DocViewer);
+            if (_docScrollViewer != null)
+            {
+                // 开启物理像素级平滑流动，消灭顿挫卡顿感
+                _docScrollViewer.CanContentScroll = false;
+                _docScrollViewer.ScrollChanged += (s, e) => CheckIfScrolledToBottom();
+                CheckIfScrolledToBottom();
+            }
+        }
+
+        private void CheckIfScrolledToBottom()
+        {
+            // 铁门神把关：只有文档本身完全合法有效，才有资格进入阅读滚动解锁流程
+            if (!_isMarkdownValid)
+            {
+                if (_currentStep == 1)
+                {
+                    BtnNext.IsEnabled = false;
+                }
+                return;
+            }
+
+            if (_hasReadAgreement || _docScrollViewer == null) return;
+
+            // 容差 8 像素；若内容较短无需滚动 (ScrollableHeight <= 0)，直接解锁下一步
+            if (_docScrollViewer.ScrollableHeight <= 0 ||
+                _docScrollViewer.VerticalOffset >= _docScrollViewer.ScrollableHeight - 8)
+            {
+                _hasReadAgreement = true;
+                if (_currentStep == 1)
+                {
+                    BtnNext.IsEnabled = true;
+                }
+            }
+        }
+
+        private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T typedChild) return typedChild;
+                var result = FindVisualChild<T>(child);
+                if (result != null) return result;
+            }
+            return null;
         }
 
         private void BtnRepo_Click(object sender, RoutedEventArgs e)
@@ -322,7 +408,7 @@ namespace Installer
                 BtnRecheck.Visibility = Visibility.Collapsed;
                 BtnCancel.Visibility = Visibility.Visible;
                 BtnNext.Content = "下一步";
-                BtnNext.IsEnabled = true;
+                BtnNext.IsEnabled = _isMarkdownValid && _hasReadAgreement;
             }
             else if (_currentStep == 3)
             {
@@ -444,55 +530,129 @@ namespace Installer
         private async void StartInstallTask()
         {
             string targetDir = TxtInstallPath.Text.Trim();
-            var (sourceBin, _) = InstallerConfig.GetTargetPayloadDirectory();
+            var (sourceBin, archName) = InstallerConfig.GetTargetPayloadDirectory();
 
-            await Task.Run(() =>
+            // 核心修复：在进入后台线程前，必须在 UI 线程提前读取复选框状态，防止跨线程崩溃
+            bool createDesktop = ChkDesktop.IsChecked == true;
+            bool createStartMenu = ChkStartMenu.IsChecked == true;
+
+            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            string logPath = Path.Combine(desktop, "Installer_Crash.log");
+            var logLines = new List<string>
             {
-                // 1. 复制所有文件
-                Directory.CreateDirectory(targetDir);
-                if (Directory.Exists(sourceBin))
+                $"[INFO {DateTime.Now:HH:mm:ss}] 开始执行安装流程",
+                $"[INFO] 目标安装目录: {targetDir}",
+                $"[INFO] 源载荷目录 ({archName}): {sourceBin}"
+            };
+
+            try
+            {
+                await Task.Run(() =>
                 {
-                    CopyDirectory(sourceBin, targetDir);
+                    // 1. 验证载荷目录
+                    if (string.IsNullOrEmpty(sourceBin) || !Directory.Exists(sourceBin))
+                    {
+                        throw new DirectoryNotFoundException($"未能找到有效的程序源文件目录: {sourceBin}");
+                    }
+
+                    // 2. 复制所有安装文件
+                    logLines.Add($"[INFO] 正在创建目标目录: {targetDir}");
+                    Directory.CreateDirectory(targetDir);
+
+                    logLines.Add("[INFO] 正在复制文件清单...");
+                    CopyDirectoryWithLogging(sourceBin, targetDir, logLines);
+
+                    // 3. 创建桌面与开始菜单快捷方式
+                    string mainExe = Path.Combine(targetDir, _config.MainExecutable);
+                    if (!File.Exists(mainExe))
+                    {
+                        logLines.Add($"[WARN] 主执行文件暂未找到: {mainExe}");
+                    }
+
+                    if (createDesktop)
+                    {
+                        logLines.Add("[INFO] 正在创建桌面快捷方式...");
+                        string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                        CreateShortcut(Path.Combine(desktopPath, $"{_config.AppName}.lnk"), mainExe, targetDir);
+                    }
+
+                    if (createStartMenu)
+                    {
+                        logLines.Add("[INFO] 正在创建开始菜单快捷方式...");
+                        string startMenu = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu), "Programs", _config.AppName);
+                        Directory.CreateDirectory(startMenu);
+                        CreateShortcut(Path.Combine(startMenu, $"{_config.AppName}.lnk"), mainExe, targetDir);
+                    }
+
+                    // 4. 部署独立的卸载器实体 uninstall.exe
+                    logLines.Add("[INFO] 正在生成卸载程序组件...");
+                    string currentInstaller = Environment.ProcessPath ?? string.Empty;
+                    if (File.Exists(currentInstaller))
+                    {
+                        File.Copy(currentInstaller, Path.Combine(targetDir, "uninstall.exe"), true);
+                    }
+
+                    // 5. 写入 Windows 注册表卸载信息
+                    logLines.Add("[INFO] 正在写入系统注册表卸载项...");
+                    RegisterUninstall(targetDir);
+                    logLines.Add("[INFO] 全部安装步骤执行完毕。");
+                });
+
+                // 安装顺利完成
+                _currentStep = 5;
+                InstallProgressBar.IsIndeterminate = false;
+                InstallProgressBar.Value = 100;
+                TxtInstallStatus.Text = "安装完成！";
+                TxtCurrentAction.Text = $"{_config.AppName} 已成功安装到你的电脑。";
+                BtnNext.Content = "启动并完成";
+                BtnNext.IsEnabled = true;
+            }
+            catch (Exception ex)
+            {
+                // 捕获异常，记录追踪日志并优雅呈现在界面上，绝不闪退
+                logLines.Add($"[FATAL ERROR] 安装过程崩溃: {ex.GetType().FullName}");
+                logLines.Add($"[FATAL ERROR] 错误消息: {ex.Message}");
+                logLines.Add($"[FATAL ERROR] 调用堆栈:\n{ex.StackTrace}");
+                if (ex.InnerException != null)
+                {
+                    logLines.Add($"[FATAL ERROR] 内部异常: {ex.InnerException.Message}");
                 }
 
-                // 2. 创建快捷方式
-                string mainExe = Path.Combine(targetDir, _config.MainExecutable);
-                if (ChkDesktop.IsChecked == true)
+                try
                 {
-                    string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-                    CreateShortcut(Path.Combine(desktop, $"{_config.AppName}.lnk"), mainExe, targetDir);
+                    File.WriteAllLines(logPath, logLines);
+                }
+                catch
+                {
                 }
 
-                if (ChkStartMenu.IsChecked == true)
-                {
-                    string startMenu = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu), "Programs", _config.AppName);
-                    Directory.CreateDirectory(startMenu);
-                    CreateShortcut(Path.Combine(startMenu, $"{_config.AppName}.lnk"), mainExe, targetDir);
-                }
-
-                // 3. 写入 Windows 注册表卸载信息
-                RegisterUninstall(targetDir);
-            });
-
-            // 安装完成，进入完成就绪态
-            _currentStep = 5;
-            InstallProgressBar.IsIndeterminate = false;
-            InstallProgressBar.Value = 100;
-            TxtInstallStatus.Text = "安装完成！";
-            TxtCurrentAction.Text = $"{_config.AppName} 已成功安装到你的电脑。";
-            BtnNext.Content = "启动并完成";
-            BtnNext.IsEnabled = true;
+                _currentStep = 5;
+                InstallProgressBar.IsIndeterminate = false;
+                InstallProgressBar.Value = 0;
+                TxtInstallStatus.Text = "安装失败！";
+                TxtInstallStatus.Foreground = new SolidColorBrush(Color.FromRgb(231, 76, 60));
+                TxtCurrentAction.Text = $"原因: {ex.Message}\n详细追踪日志已输出至桌面: Installer_Crash.log";
+                BtnNext.Content = "关闭退出";
+                BtnNext.IsEnabled = true;
+            }
         }
 
-        private static void CopyDirectory(string source, string target)
+        private static void CopyDirectoryWithLogging(string source, string target, List<string> logs)
         {
+            // 使用 Path.GetRelativePath 进行安全路径映射，彻底规避 string.Replace 的替换缺陷
             foreach (var dir in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
             {
-                Directory.CreateDirectory(dir.Replace(source, target));
+                string relDir = Path.GetRelativePath(source, dir);
+                string destDir = Path.Combine(target, relDir);
+                Directory.CreateDirectory(destDir);
             }
+
             foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
             {
-                File.Copy(file, file.Replace(source, target), true);
+                string relFile = Path.GetRelativePath(source, file);
+                string destFile = Path.Combine(target, relFile);
+                logs.Add($"[COPY] {relFile}");
+                File.Copy(file, destFile, true);
             }
         }
 
@@ -521,12 +681,17 @@ namespace Installer
                 using var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(keyPath);
                 if (key != null)
                 {
+                    string uninstallerPath = Path.Combine(targetDir, "uninstall.exe");
+                    string icoPath = Path.Combine(targetDir, "app.ico");
+                    string iconTarget = File.Exists(icoPath) ? icoPath : Path.Combine(targetDir, _config.MainExecutable);
+
                     key.SetValue("DisplayName", _config.AppName);
                     key.SetValue("DisplayVersion", _config.AppVersion);
                     key.SetValue("Publisher", _config.Publisher);
                     key.SetValue("InstallLocation", targetDir);
-                    key.SetValue("DisplayIcon", Path.Combine(targetDir, _config.MainExecutable));
-                    key.SetValue("UninstallString", $"cmd /c rmdir /s /q \"{targetDir}\"");
+                    key.SetValue("DisplayIcon", iconTarget);
+                    // 绑定 uninstall.exe 作为原生卸载指令
+                    key.SetValue("UninstallString", $"\"{uninstallerPath}\" --uninstall");
                 }
             }
             catch

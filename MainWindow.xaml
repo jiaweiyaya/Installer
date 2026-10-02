@@ -107,9 +107,50 @@
                     <!-- Markdown 文档滚动查看区域 -->
                     <Border Grid.Row="1" Background="#24272D" CornerRadius="6" BorderBrush="#353A43" BorderThickness="1" Padding="14,10,14,10">
                         <FlowDocumentScrollViewer x:Name="DocViewer" Background="Transparent" BorderThickness="0"
+                                                  ScrollViewer.CanContentScroll="False"
                                                   VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                             <FlowDocumentScrollViewer.Resources>
                                 <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#E6E6E6" />
+
+                                <!-- 定制 Windows 11 暗黑现代极简滚动条 (无白色底框与箭头) -->
+                                <Style TargetType="{x:Type ScrollBar}">
+                                    <Setter Property="Width" Value="8" />
+                                    <Setter Property="Background" Value="Transparent" />
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="{x:Type ScrollBar}">
+                                                <Grid Background="Transparent">
+                                                    <Track x:Name="PART_Track" IsDirectionReversed="True">
+                                                        <Track.DecreaseRepeatButton>
+                                                            <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}" Opacity="0" Focusable="False" />
+                                                        </Track.DecreaseRepeatButton>
+                                                        <Track.Thumb>
+                                                            <Thumb>
+                                                                <Thumb.Template>
+                                                                    <ControlTemplate TargetType="{x:Type Thumb}">
+                                                                        <Border x:Name="thumbBorder" Background="#4A505C" CornerRadius="4" Margin="1,0,1,0" />
+                                                                        <ControlTemplate.Triggers>
+                                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                                <Setter TargetName="thumbBorder" Property="Background" Value="#6B7382" />
+                                                                            </Trigger>
+                                                                            <Trigger Property="IsDragging" Value="True">
+                                                                                <Setter TargetName="thumbBorder" Property="Background" Value="#868E9D" />
+                                                                            </Trigger>
+                                                                        </ControlTemplate.Triggers>
+                                                                    </ControlTemplate>
+                                                                </Thumb.Template>
+                                                            </Thumb>
+                                                        </Track.Thumb>
+                                                        <Track.IncreaseRepeatButton>
+                                                            <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}" Opacity="0" Focusable="False" />
+                                                        </Track.IncreaseRepeatButton>
+                                                    </Track>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+
                                 <Style TargetType="FlowDocument">
                                     <Setter Property="Foreground" Value="#E6E6E6" />
                                     <Setter Property="FontFamily" Value="Segoe UI, Microsoft YaHei" />
@@ -121,7 +162,7 @@
                                     <Setter Property="LineHeight" Value="20" />
                                 </Style>
                                 
-                                <!-- 彻底解决行内代码白底白字：强制定义深石墨底色与亮白文字 -->
+                                <!-- 彻底解决行内代码白底白字 -->
                                 <Style x:Key="{x:Static md:Styles.CodeStyleKey}" TargetType="{x:Type Run}">
                                     <Setter Property="Background" Value="#32363F" />
                                     <Setter Property="Foreground" Value="#F0F4F8" />
@@ -151,23 +192,19 @@
                                     <Setter Property="FontWeight" Value="Bold" />
                                     <Setter Property="Margin" Value="0,8,0,6" />
                                 </Style>
-
-                                <!-- 补齐三级标题（### 标题）：高亮纯白 -->
                                 <Style x:Key="{x:Static md:Styles.Heading3StyleKey}" TargetType="{x:Type Paragraph}">
                                     <Setter Property="Foreground" Value="#FFFFFF" />
                                     <Setter Property="FontSize" Value="15" />
                                     <Setter Property="FontWeight" Value="SemiBold" />
                                     <Setter Property="Margin" Value="0,8,0,6" />
                                 </Style>
-
-                                <!-- 补齐四级、五级标题 -->
                                 <Style x:Key="{x:Static md:Styles.Heading4StyleKey}" TargetType="{x:Type Paragraph}">
                                     <Setter Property="Foreground" Value="#F0F4F8" />
                                     <Setter Property="FontSize" Value="13" />
                                     <Setter Property="FontWeight" Value="SemiBold" />
                                     <Setter Property="Margin" Value="0,6,0,4" />
                                 </Style>
-                                
+
                                 <Style TargetType="List">
                                     <Setter Property="Foreground" Value="#E6E6E6" />
                                     <Setter Property="Margin" Value="0,0,0,10" />
@@ -176,9 +213,18 @@
                                     <Setter Property="Foreground" Value="#E6E6E6" />
                                     <Setter Property="Margin" Value="0,2,0,2" />
                                 </Style>
-                                <Style TargetType="Hyperlink">
-                                    <Setter Property="Foreground" Value="#4CC2FF" />
+
+                                <!-- 重写 Markdig 专属超链接样式：高亮明艳天蓝色与悬停下划线 -->
+                                <Style x:Key="{x:Static md:Styles.HyperlinkStyleKey}" TargetType="{x:Type Hyperlink}">
+                                    <Setter Property="Foreground" Value="#38BDF8" />
                                     <Setter Property="TextDecorations" Value="None" />
+                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Foreground" Value="#7DD3FC" />
+                                            <Setter Property="TextDecorations" Value="Underline" />
+                                        </Trigger>
+                                    </Style.Triggers>
                                 </Style>
                             </FlowDocumentScrollViewer.Resources>
                         </FlowDocumentScrollViewer>

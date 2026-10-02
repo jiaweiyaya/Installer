@@ -8,7 +8,7 @@ namespace Installer
     {
         public string AppName { get; set; } = "FontAutoLoader";
         public string AppVersion { get; set; } = "1.0.0";
-        public string Publisher { get; set; } = "Developer";
+        public string Publisher { get; set; } = "Jiaweiya";
         public string MainExecutable { get; set; } = "FontAutoLoader.exe";
         public string DefaultFolderName { get; set; } = "FontAutoLoader";
         public string MarkdownFile { get; set; } = "README.md";
